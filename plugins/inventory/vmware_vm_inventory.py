@@ -115,9 +115,15 @@ DOCUMENTATION = r'''
         with_sanitized_property_name:
             description:
                 - This option allows property name sanitization to create safe property names for use in Ansible.
-                - Also, transforms property name to snake case.
             type: bool
             default: False
+            version_added: "2.10"
+        property_name_format:
+            description:
+                - Transforms property name format.
+            type: str
+            choices: [ snake_case, camel_case, lower_case ]
+            default: 'camel_case'
             version_added: "2.10"
         keyed_groups:
             description: Add hosts to group based on the values of a variable.
@@ -663,12 +669,17 @@ class InventoryModule(BaseInventoryPlugin, Constructable, Cacheable):
                     c_group = p_group
                     parents.pop()
 
-        # Hostvars formats manipulation
+        # property_name_format
+        property_name_format = self.get_option('property_name_format')
+        if property_name_format.lower() == 'snake_case':
+            host_properties = camel_dict_to_snake_dict(host_properties)
+        elif property_name_format.lower() == 'lower_case':
+            host_properties = rename_dict_key(host_properties, str.lower)
+
+        # with_nested_properties
         host_properties = host_properties if with_nested_properties else to_flatten_dict(host_properties)
 
-        if self.get_option('with_sanitized_property_name'):
-            host_properties = camel_dict_to_snake_dict(host_properties)
-
+        # with_sanitized_property_name
         can_sanitize = self.get_option('with_sanitized_property_name')
         for k, v in host_properties.items():
             k = self._sanitize_group_name(k) if can_sanitize else k
@@ -733,3 +744,17 @@ def to_flatten_dict(d, parent_key='', sep='.'):
         else:
             items.append((new_key, v))
     return dict(items)
+
+
+def rename_dict_key(item, rename_func):
+    if isinstance(item, dict):
+        new_dict = {}
+        for k, v in item.items():
+            new_dict[rename_func(k)] = rename_dict_key(v, rename_func)
+        return new_dict
+    elif isinstance(item, list):
+        new_list = []
+        for k in item:
+            new_list.append(rename_dict_key(k, rename_func))
+    else:
+        return item
